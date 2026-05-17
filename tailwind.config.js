@@ -4,8 +4,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#24313f",
-        paper: "#E9FAFD",
+        ink: "rgba(0, 0, 0, 0.85)",
+        muted: "rgba(0, 0, 0, 0.6)",
+        paper: "#FFFFFF",
+        surface: "#FCFCFC",
+        subtle: "#F7F7F8",
+        line: "rgba(0, 0, 0, 0.05)",
+        cobalt: "#a855f7",
         mint: "#17BCE0",
         coral: "#FF5E14",
         skyline: "#17BCE0",
@@ -14,7 +19,10 @@ export default {
         vivid: "#FF5E14"
       },
       boxShadow: {
-        soft: "0 16px 42px rgba(23, 188, 224, 0.22)"
+        soft: "0 1px 2px rgba(0, 0, 0, 0.04)"
+      },
+      transitionTimingFunction: {
+        bezier: "cubic-bezier(0.3, 0, 0, 1)"
       }
     }
   },
