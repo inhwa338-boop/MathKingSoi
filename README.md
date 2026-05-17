@@ -14,6 +14,7 @@ npm install
 
 ```env
 VITE_GEMINI_API_KEY=Gemini API 키
+VITE_GEMINI_MODEL=gemini-2.5-flash
 TELEGRAM_BOT_TOKEN=텔레그램 봇 토큰
 TELEGRAM_CHAT_ID=부모님 텔레그램 Chat ID
 SUPABASE_URL=Supabase Project URL
@@ -84,7 +85,7 @@ UTC 00:00에 실행되므로 한국 시간으로 매일 오전 9시에 전날 �
 ## 주요 파일
 
 - `src/App.jsx`: 두 탭 화면, 문제 등록, 풀이 도움, 히스토리 UI
-- `src/lib/gemini.js`: Gemini 1.5 Flash 텍스트/이미지 연동
+- `src/lib/gemini.js`: Gemini Flash 텍스트/이미지 연동
 - `src/lib/storage.js`: localStorage 현재 문제/히스토리 관리
 - `api/save-log.js`: Supabase 학습 기록 저장 API
 - `api/send-daily-report.js`: 텔레그램 일일 리포트 API

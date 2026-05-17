@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { detectSubjectTag } from "./math";
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || "gemini-2.5-flash";
 
 export const hasGeminiConfig = Boolean(apiKey);
 
@@ -29,7 +30,7 @@ function getTutorModel(currentGrade) {
 `;
 
   return getClient().getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: GEMINI_MODEL,
     systemInstruction
   });
 }
@@ -49,7 +50,7 @@ ${problemText}
 
 export async function requestPracticeProblems({ problemText, explanation }) {
   const model = getClient().getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: GEMINI_MODEL,
     generationConfig: {
       responseMimeType: "application/json"
     }
@@ -88,7 +89,7 @@ ${explanation}
 }
 
 export async function extractProblemTextFromImage(file) {
-  const model = getClient().getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = getClient().getGenerativeModel({ model: GEMINI_MODEL });
   const base64 = await fileToBase64(file);
 
   const result = await model.generateContent([
@@ -107,7 +108,7 @@ export async function extractProblemTextFromImage(file) {
 export async function classifyProblem(problemText) {
   if (!apiKey) return detectSubjectTag(problemText);
 
-  const model = getClient().getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = getClient().getGenerativeModel({ model: GEMINI_MODEL });
   const result = await model.generateContent(`
 아래 수학 문제의 단원명을 하나만 한국어로 답해줘.
 예: 일차방정식, 비와 비율, 정수와 유리수, 문자와 식, 좌표평면과 그래프, 기본도형, 통계
