@@ -5,14 +5,16 @@ export default {
     extend: {
       colors: {
         ink: "#24313f",
-        paper: "#fffaf0",
-        mint: "#2f9d7e",
-        coral: "#e46f5a",
-        skyline: "#2374ab",
-        lemon: "#f3c84b"
+        paper: "#E9FAFD",
+        mint: "#17BCE0",
+        coral: "#FF5E14",
+        skyline: "#17BCE0",
+        lemon: "#FFA1B9",
+        bubblegum: "#FFA1B9",
+        vivid: "#FF5E14"
       },
       boxShadow: {
-        soft: "0 16px 42px rgba(36, 49, 63, 0.12)"
+        soft: "0 16px 42px rgba(23, 188, 224, 0.22)"
       }
     }
   },

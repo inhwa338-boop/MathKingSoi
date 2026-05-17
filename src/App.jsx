@@ -287,23 +287,28 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      <div className="border-b border-ink/10 bg-white/80 backdrop-blur">
+    <div className="min-h-screen bg-skyline text-ink">
+      <div className="border-b border-white/40 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-mint">
-                <Sparkles className="h-4 w-4" />
-                중1 수학 학습 도우미
+            <div className="flex items-center gap-3">
+              <img src="/app-icon.png" alt="수학왕 추소이" className="h-14 w-14 rounded-xl border-2 border-white object-cover shadow-soft" />
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-skyline">
+                  <Sparkles className="h-4 w-4 text-vivid" />
+                  중1 수학 학습 도우미
+                </div>
+                <h1 className="mt-1 text-3xl font-black tracking-normal">
+                  <span className="text-vivid">수학왕</span> <span className="text-bubblegum">추소이</span>
+                </h1>
               </div>
-              <h1 className="mt-1 text-3xl font-black tracking-normal text-ink">수학왕 추소이</h1>
             </div>
-            <div className="rounded-md border border-ink/10 bg-lemon/20 px-3 py-2 text-sm font-semibold text-ink">
+            <div className="rounded-md border border-vivid/20 bg-bubblegum/25 px-3 py-2 text-sm font-semibold text-ink">
               정답 대신 방법을 익히는 학습 모드
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 rounded-lg bg-ink/5 p-1">
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-skyline/10 p-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
@@ -312,7 +317,7 @@ export default function App() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-bold transition ${
-                    active ? "bg-white text-skyline shadow-sm" : "text-ink/65 hover:bg-white/60"
+                    active ? "bg-white text-vivid shadow-sm" : "text-ink/65 hover:bg-white/60"
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -326,7 +331,7 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         {message && (
-          <div className="mb-5 rounded-md border border-skyline/20 bg-skyline/10 px-4 py-3 text-sm font-semibold text-skyline">
+          <div className="mb-5 rounded-md border border-white/50 bg-white/90 px-4 py-3 text-sm font-semibold text-vivid shadow-soft">
             {message}
           </div>
         )}
