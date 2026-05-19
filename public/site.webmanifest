@@ -1,11 +1,11 @@
 {
   "name": "수학왕 추소이",
-  "short_name": "추소이",
+  "short_name": "수학왕추소이",
   "description": "정답 대신 풀이 방법을 알려주는 중학생 수학 학습 도우미",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#17BCE0",
-  "theme_color": "#17BCE0",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icon-192.png",

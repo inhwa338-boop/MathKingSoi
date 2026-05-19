@@ -1,43 +1,51 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import {
+  ArrowLeft,
+  ArrowUp,
   Camera,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   History,
   Loader2,
-  MessageCircleQuestion,
   Search,
-  Sparkles,
-  X
+  X,
 } from "lucide-react";
 import {
   classifyProblem,
   extractProblemTextFromImage,
   hasGeminiConfig,
   requestMathHelp,
-  requestPracticeProblems
 } from "./lib/gemini";
 import { saveStudyLogViaApi } from "./lib/studyLogApi";
-import { getHistory, updateHistoryItem, upsertHistoryItem } from "./lib/storage";
+import { getHistory, updateHistoryItem, upsertHistoryItem, getDailyRemaining, consumeDailyUsage } from "./lib/storage";
 import { GRADE_LEVELS, detectSubjectTag, statusForServer, statusLabel, summarizeProblem } from "./lib/math";
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const LOADING_STEPS = [
+  "문제를 확인하고 있어요",
+  "AI가 문제를 분석하고 있어요",
+  "풀이 방법을 완성하고 있어요",
+];
+
 export default function App() {
-  const [showIntro, setShowIntro] = useState(true);
+  const [showIntro, setShowIntro] = useState(false);
   const [view, setView] = useState("home");
   const [question, setQuestion] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
   const [history, setHistory] = useState([]);
   const [activeProblem, setActiveProblem] = useState(null);
+  const [historyDetailItem, setHistoryDetailItem] = useState(null);
   const [message, setMessage] = useState("");
   const [isSolving, setIsSolving] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [unitFilter, setUnitFilter] = useState("전체");
   const [statusFilter, setStatusFilter] = useState("전체");
-  const [openHistoryId, setOpenHistoryId] = useState(null);
+  const [dailyRemaining, setDailyRemaining] = useState(() => getDailyRemaining());
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -74,15 +82,24 @@ export default function App() {
       return;
     }
 
+    if (getDailyRemaining() <= 0) {
+      setMessage("오늘 사용 가능한 횟수를 모두 썼어요. 내일 다시 시도해주세요.");
+      return;
+    }
+
     if (!hasGeminiConfig) {
       setMessage(".env에 VITE_GEMINI_API_KEY를 입력해야 AI 풀이 도움을 받을 수 있어요.");
       return;
     }
 
+    const remaining = consumeDailyUsage();
+    setDailyRemaining(remaining);
+
     setMessage("");
     setView("solving");
     setIsSolving(true);
-    setLoadingMessage("AI가 문제를 분석 중이에요.");
+    setLoadingStep(1);
+    setLoadingMessage(LOADING_STEPS[0]);
 
     const imagePreview = attachedFile ? URL.createObjectURL(attachedFile) : "";
     const problem = {
@@ -99,52 +116,54 @@ export default function App() {
       practiceCheckedIds: [],
       practiceCheckedCount: 0,
       currentGradeIndex: 0,
-      explanation: ""
+      explanation: "",
     };
     setActiveProblem(problem);
 
     try {
-      let problemText = typedQuestion;
-      if (attachedFile) {
-        setLoadingMessage("AI가 사진 속 문제를 읽고 있어요.");
-        problemText = await extractProblemTextFromImage(attachedFile);
-      }
+      setLoadingStep(1);
+      setLoadingMessage(LOADING_STEPS[1]);
 
-      setLoadingMessage("AI가 풀이 과정을 준비 중이에요.");
-      const subjectTag = hasGeminiConfig ? await classifyProblem(problemText) : detectSubjectTag(problemText);
-      const explanation = await requestMathHelp({
-        problemText,
-        currentGrade: GRADE_LEVELS[0]
-      });
+      const [problemText, subjectTag, explanation] = await Promise.all([
+        attachedFile
+          ? extractProblemTextFromImage(attachedFile)
+          : Promise.resolve(typedQuestion),
+        hasGeminiConfig
+          ? classifyProblem(typedQuestion || "", attachedFile || null)
+          : Promise.resolve(detectSubjectTag(typedQuestion)),
+        requestMathHelp({
+          problemText: typedQuestion || "이미지 문제",
+          imageFile: attachedFile || null,
+          currentGrade: GRADE_LEVELS[0],
+        }),
+      ]);
 
-      const explained = {
+      const completed = {
         ...problem,
         problemText,
         problemSummary: summarizeProblem(problemText),
         subjectTag,
-        explanation
-      };
-      setActiveProblem(explained);
-      setHistory(upsertHistoryItem(explained));
-
-      setLoadingMessage("이해 확인용 객관식 문제를 만들고 있어요.");
-      const practiceProblems = await requestPracticeProblems({ problemText, explanation });
-      const completed = {
-        ...explained,
-        practiceProblems,
+        explanation,
+        practiceProblems: [],
         practiceSelections: {},
         practiceCheckedIds: [],
-        practiceCheckedCount: 0
+        practiceCheckedCount: 0,
       };
       setActiveProblem(completed);
-      setHistory(updateHistoryItem(completed.id, completed));
+      setHistory(upsertHistoryItem(completed));
       setQuestion("");
       setAttachedFile(null);
     } catch (error) {
-      setMessage(error.message || "AI 풀이를 준비하지 못했어요.");
+      const msg = error.message || "";
+      if (msg.includes("429") || msg.includes("quota") || msg.includes("rate")) {
+        setMessage("오늘 AI 사용 횟수를 모두 썼어요. 잠시 후 다시 시도해주세요.");
+      } else {
+        setMessage("AI 풀이를 준비하지 못했어요. 다시 시도해주세요.");
+      }
       setView("home");
     } finally {
       setIsSolving(false);
+      setLoadingStep(0);
       setLoadingMessage("");
     }
   }
@@ -155,7 +174,7 @@ export default function App() {
     const updated = {
       ...activeProblem,
       understandingStatus: status,
-      completedAt: new Date().toISOString()
+      completedAt: new Date().toISOString(),
     };
 
     setActiveProblem(updated);
@@ -169,10 +188,10 @@ export default function App() {
         understandingStatus: statusForServer(status),
         easierCount: updated.easierCount,
         practiceProblemsCount: updated.practiceProblems?.length || 0,
-        practiceCheckedCount: updated.practiceCheckedCount || 0
+        practiceCheckedCount: updated.practiceCheckedCount || 0,
       });
     } catch {
-      // Server logging can be configured later without blocking local learning.
+      // Server logging optional
     }
   }
 
@@ -188,7 +207,7 @@ export default function App() {
       ...activeProblem,
       practiceSelections: nextSelections,
       practiceCheckedIds: nextCheckedIds,
-      practiceCheckedCount: (activeProblem.practiceCheckedCount || 0) + 1
+      practiceCheckedCount: (activeProblem.practiceCheckedCount || 0) + 1,
     };
 
     setActiveProblem(updated);
@@ -198,6 +217,11 @@ export default function App() {
   function handleCloseSolving() {
     setView("home");
     setMessage("");
+  }
+
+  function handleOpenHistoryDetail(item) {
+    setHistoryDetailItem(item);
+    setView("history-detail");
   }
 
   if (showIntro) {
@@ -213,10 +237,19 @@ export default function App() {
       <SolvingView
         activeProblem={activeProblem}
         isSolving={isSolving}
+        loadingStep={loadingStep}
         loadingMessage={loadingMessage}
         onClose={handleCloseSolving}
         onUnderstanding={handleUnderstanding}
-        onPracticeChoice={handlePracticeChoice}
+      />
+    );
+  }
+
+  if (view === "history-detail") {
+    return (
+      <HistoryDetailView
+        item={historyDetailItem}
+        onBack={() => setView("history")}
       />
     );
   }
@@ -227,7 +260,7 @@ export default function App() {
         <TopNav view={view} setView={setView} />
 
         {message && (
-          <div className="mt-4 rounded-xl border border-line bg-subtle px-4 py-3 text-sm font-bold text-vivid">
+          <div className="mt-4 rounded-lg border border-error/20 bg-error/5 px-4 py-3 text-[13px] text-error">
             {message}
           </div>
         )}
@@ -240,8 +273,7 @@ export default function App() {
             setUnitFilter={setUnitFilter}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
-            openHistoryId={openHistoryId}
-            setOpenHistoryId={setOpenHistoryId}
+            onSelectItem={handleOpenHistoryDetail}
           />
         ) : (
           <HomeView
@@ -251,6 +283,7 @@ export default function App() {
             setAttachedFile={setAttachedFile}
             fileInputRef={fileInputRef}
             onSubmit={handleSubmit}
+            dailyRemaining={dailyRemaining}
           />
         )}
       </main>
@@ -260,52 +293,77 @@ export default function App() {
 
 function TopNav({ view, setView }) {
   return (
-    <header className="flex items-center justify-between gap-3">
-      <img src="/app-icon.png" alt="수학왕 추소이" className="h-12 w-12 rounded-xl border border-line object-cover" />
-
-      <nav className="grid min-h-14 flex-1 grid-cols-2 rounded-[32px] bg-subtle p-1">
+    <header className="mb-2">
+      <nav className="grid h-12 grid-cols-2 rounded-[20px] bg-subtle p-1">
         <button
           onClick={() => setView("home")}
-          className={`flex items-center justify-center gap-2 rounded-[28px] text-sm font-bold transition ${
-            view === "home" ? "bg-white text-vivid shadow-soft" : "text-muted"
+          className={`flex items-center justify-center gap-1.5 rounded-2xl text-[13px] font-bold transition duration-150 ease-bezier ${
+            view === "home" ? "bg-white text-ink shadow-soft" : "text-muted"
           }`}
         >
-          <Search className="h-5 w-5" />
+          <Search className="h-4 w-4" />
           질문
         </button>
         <button
           onClick={() => setView("history")}
-          className={`flex items-center justify-center gap-2 rounded-[28px] text-sm font-bold transition ${
-            view === "history" ? "bg-white text-vivid shadow-soft" : "text-muted"
+          className={`flex items-center justify-center gap-1.5 rounded-2xl text-[13px] font-bold transition duration-150 ease-bezier ${
+            view === "history" ? "bg-white text-ink shadow-soft" : "text-muted"
           }`}
         >
-          <History className="h-5 w-5" />
+          <History className="h-4 w-4" />
           기록
         </button>
       </nav>
-
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-skyline/10">
-        <Sparkles className="h-6 w-6 text-vivid" />
-      </div>
     </header>
   );
 }
 
-function HomeView({ question, setQuestion, attachedFile, setAttachedFile, fileInputRef, onSubmit }) {
+function HomeView({ question, setQuestion, attachedFile, setAttachedFile, fileInputRef, onSubmit, dailyRemaining }) {
+  const [previewUrl, setPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    if (!attachedFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(attachedFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [attachedFile]);
+
+  const exhausted = dailyRemaining <= 0;
+  const canSubmit = (question.trim() || attachedFile) && !exhausted;
+
   return (
     <>
       <section className="flex flex-1 flex-col items-center justify-center pb-28 text-center">
-        <div className="mb-7 flex h-20 w-20 items-center justify-center rounded-3xl bg-skyline/10">
-          <img src="/app-icon.png" alt="" className="h-16 w-16 rounded-2xl object-cover" />
-        </div>
-        <h1 className="text-[28px] font-bold leading-10 text-ink">안녕 소이야 👋</h1>
-        <p className="mt-4 whitespace-pre-line text-[20px] font-bold leading-8 text-ink">
-          {`모르는 수학 문제를 물어보면\n풀이 방법을 쉽게 알려줄게!`}
+        <h1 className="text-[22px] font-bold leading-7 tracking-[-0.4px] text-ink">안녕 소이야 👋</h1>
+        <p className="mt-3 whitespace-pre-line text-[15px] leading-7 text-muted">
+          {"모르는 수학 문제를 물어보면\n풀이 방법을 쉽게 알려줄게!"}
+        </p>
+        <p className={`mt-5 text-[13px] ${exhausted ? "text-error" : "text-muted"}`}>
+          {exhausted
+            ? "오늘 사용 가능한 횟수를 모두 썼어요.\n내일 다시 시도해주세요."
+            : `오늘 남은 횟수 : ${dailyRemaining}회`}
         </p>
       </section>
 
       <form onSubmit={onSubmit} className="sticky bottom-5">
-        <div className="rounded-[32px] border border-line bg-subtle p-4 shadow-soft">
+        <div className="rounded-[20px] border border-line bg-subtle p-4">
+          {previewUrl && (
+            <div className="relative mb-3 w-fit">
+              <img src={previewUrl} alt="첨부 이미지" className="h-24 w-24 rounded-xl object-cover" />
+              <button
+                type="button"
+                onClick={() => setAttachedFile(null)}
+                aria-label="이미지 삭제"
+                className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
           <textarea
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
@@ -317,37 +375,37 @@ function HomeView({ question, setQuestion, attachedFile, setAttachedFile, fileIn
             }}
             placeholder="수학 문제를 입력해보세요..."
             rows={2}
-            className="max-h-32 min-h-14 w-full resize-none bg-transparent text-[18px] font-bold leading-7 outline-none placeholder:text-muted"
+            className="max-h-32 min-h-12 w-full resize-none bg-transparent text-[16px] leading-6 outline-none placeholder:text-muted"
           />
-
-          {attachedFile && (
-            <div className="mt-2 flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm font-bold text-muted">
-              <span className="truncate">{attachedFile.name}</span>
-              <button type="button" onClick={() => setAttachedFile(null)} className="text-vivid">
-                삭제
-              </button>
-            </div>
-          )}
 
           <div className="mt-3 flex items-center justify-between">
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg"
-              capture="environment"
+              accept="image/*"
               className="sr-only"
               onChange={(event) => setAttachedFile(event.target.files?.[0] || null)}
             />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              disabled={exhausted}
               aria-label="사진 첨부"
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-vivid shadow-soft"
+              className={`flex h-10 w-10 items-center justify-center rounded-full bg-white transition duration-150 ease-bezier ${
+                exhausted ? "cursor-not-allowed opacity-30 text-muted" : "text-muted"
+              }`}
             >
-              <Camera className="h-6 w-6" />
+              <Camera className="h-5 w-5" />
             </button>
-            <button type="submit" className="sr-only">
-              전송
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              aria-label="전송"
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition duration-150 ease-bezier ${
+                canSubmit ? "bg-cobalt text-white" : "bg-white text-muted opacity-30"
+              }`}
+            >
+              <ArrowUp className="h-5 w-5" />
             </button>
           </div>
         </div>
@@ -356,52 +414,100 @@ function HomeView({ question, setQuestion, attachedFile, setAttachedFile, fileIn
   );
 }
 
-function SolvingView({ activeProblem, isSolving, loadingMessage, onClose, onUnderstanding, onPracticeChoice }) {
+function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, onClose, onUnderstanding }) {
+  const [barWidth, setBarWidth] = useState(0);
+
+  useEffect(() => {
+    if (!isSolving) return;
+    setBarWidth(0);
+    const timer = setInterval(() => {
+      setBarWidth((prev) => {
+        if (prev >= 90) return prev;
+        return prev + (90 - prev) * 0.004;
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [isSolving]);
+
+  useEffect(() => {
+    if (activeProblem?.explanation) setBarWidth(100);
+  }, [activeProblem?.explanation]);
+
   return (
     <div className="min-h-screen bg-white text-ink">
-      <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-4 py-4 backdrop-blur-xl">
+      <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-5 py-4 backdrop-blur-xl">
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-subtle text-ink"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-subtle text-ink transition duration-150 ease-bezier"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
           <div>
-            <h1 className="text-lg font-bold">풀이 방법</h1>
-            <p className="text-sm font-bold text-muted">정답 대신 방법을 익혀요</p>
+            <h1 className="text-[17px] font-bold leading-6 tracking-[-0.1px]">풀이 방법</h1>
+            <p className="text-[13px] text-muted">정답 대신 방법을 익혀요</p>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-5 px-4 py-5">
+      <main className="mx-auto max-w-3xl space-y-4 px-5 py-5">
         {isSolving && (
-          <div className="app-card flex items-center gap-3 p-5">
-            <Loader2 className="h-5 w-5 animate-spin text-vivid" />
-            <p className="text-base font-bold">{loadingMessage || "AI가 풀이 과정을 준비 중이에요."}</p>
+          <div className="app-card p-5">
+            <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-divider">
+              <div
+                className="h-full rounded-full bg-cobalt transition-all duration-700 ease-bezier"
+                style={{ width: `${barWidth}%` }}
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-cobalt" />
+              <p className="text-[15px] text-ink">{loadingMessage || LOADING_STEPS[0]}</p>
+            </div>
           </div>
         )}
 
         {activeProblem?.explanation && (
           <>
             <section className="app-card p-5">
-              <div className="mb-3 flex items-center gap-2 text-sm font-bold text-vivid">
-                <Sparkles className="h-4 w-4" />
-                {activeProblem.subjectTag}
+              <div className="mb-3">
+                <span className="rounded-md bg-cobalt/10 px-2 py-1 text-[12px] text-cobalt">
+                  {activeProblem.subjectTag}
+                </span>
               </div>
-              <p className="whitespace-pre-wrap text-[16px] leading-7">{activeProblem.explanation}</p>
+              <Markdown
+                rehypePlugins={[rehypeRaw]}
+                className="prose-math text-[15px] leading-6 text-ink"
+                components={{
+                  p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
+                  strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
+                  hr: () => <hr className="my-4 border-line" />,
+                  ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
+                  li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
+                  h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
+                  h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
+                  h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
+                  h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
+                  code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
+                  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
+                }}
+              >
+                {activeProblem.explanation}
+              </Markdown>
             </section>
 
-            <PracticeQuiz activeProblem={activeProblem} onPracticeChoice={onPracticeChoice} />
-
-            <section className="grid gap-2 sm:grid-cols-2">
-              <button onClick={() => onUnderstanding("understood")} className="control-button bg-mint text-white">
-                <CheckCircle2 className="h-4 w-4" />
+            <section className="flex gap-2">
+              <button
+                onClick={() => onUnderstanding("understood")}
+                className="flex-1 rounded py-3 text-[14px] font-bold text-white bg-success transition duration-150 ease-bezier"
+              >
                 이해했어요
               </button>
-              <button onClick={() => onUnderstanding("confused")} className="control-button bg-coral text-white">
-                <MessageCircleQuestion className="h-4 w-4" />
+              <button
+                onClick={() => onUnderstanding("confused")}
+                className="flex-1 rounded py-3 text-[14px] font-bold text-white bg-error transition duration-150 ease-bezier"
+              >
                 아직 헷갈려요
               </button>
             </section>
@@ -412,32 +518,79 @@ function SolvingView({ activeProblem, isSolving, loadingMessage, onClose, onUnde
   );
 }
 
+const CONFETTI_COLORS = ["#a855f7", "#31A552", "#EDBC40", "#E94E58", "#6687FF", "#3CDDCD", "#FFAB5C", "#EC6FD3"];
+const CONFETTI_DIRS = [
+  { tx: "0px", ty: "-52px" },
+  { tx: "37px", ty: "-37px" },
+  { tx: "52px", ty: "0px" },
+  { tx: "37px", ty: "37px" },
+  { tx: "0px", ty: "52px" },
+  { tx: "-37px", ty: "37px" },
+  { tx: "-52px", ty: "0px" },
+  { tx: "-37px", ty: "-37px" },
+];
+
+function ConfettiBurst() {
+  return (
+    <div
+      style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", pointerEvents: "none", zIndex: 10 }}
+      aria-hidden="true"
+    >
+      {CONFETTI_DIRS.map((dir, i) => (
+        <span
+          key={i}
+          className="confetti-particle"
+          style={{
+            "--tx": dir.tx,
+            "--ty": dir.ty,
+            background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+            animationDelay: `${i * 25}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function PracticeQuiz({ activeProblem, onPracticeChoice }) {
+  const [confettiIds, setConfettiIds] = useState([]);
+
   const problems = activeProblem.practiceProblems || [];
   const selections = activeProblem.practiceSelections || {};
+
+  function handleChoice(problemId, choiceIndex) {
+    const problem = problems.find((p) => p.id === problemId);
+    onPracticeChoice(problemId, choiceIndex);
+    if (problem && choiceIndex === (problem.correctIndex ?? 0)) {
+      setConfettiIds((prev) => [...prev, problemId]);
+      setTimeout(() => setConfettiIds((prev) => prev.filter((id) => id !== problemId)), 900);
+    }
+  }
 
   if (problems.length === 0) {
     return (
       <section className="app-card p-5">
-        <div className="flex items-center gap-2 text-base font-bold text-coral">
+        <div className="flex items-center gap-2 text-[14px] text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
-          이해 확인 문제를 준비하고 있어요.
+          확인 문제를 준비하고 있어요.
         </div>
       </section>
     );
   }
 
   return (
-    <section className="rounded-xl border border-coral/20 bg-coral/5 p-5">
-      <h2 className="text-lg font-bold">이해한게 맞는지 테스트해봐요!</h2>
+    <section className="rounded-xl border border-line bg-subtle p-5">
+      <h2 className="text-[16px] font-bold leading-6 text-ink">이해했는지 확인해봐요</h2>
       <div className="mt-4 space-y-4">
         {problems.map((problem, index) => {
           const selected = selections[problem.id];
           const hasSelected = selected !== undefined;
           const correctIndex = problem.correctIndex ?? 0;
+          const showConfetti = confettiIds.includes(problem.id);
           return (
-            <div key={problem.id} className="rounded-xl border border-line bg-white p-4">
-              <p className="text-sm font-bold leading-6">
+            <div key={problem.id} className="relative overflow-hidden rounded-xl border border-line bg-white p-4">
+              {showConfetti && <ConfettiBurst />}
+              <p className="text-[14px] leading-5 text-ink">
                 {index + 1}. {problem.question}
               </p>
               <div className="mt-3 grid gap-2">
@@ -448,27 +601,43 @@ function PracticeQuiz({ activeProblem, onPracticeChoice }) {
                   const showWrong = hasSelected && isSelected && !isCorrect;
                   return (
                     <button
-                      key={`${problem.id}-${choice}`}
+                      key={`${problem.id}-${choiceIndex}`}
                       disabled={hasSelected}
-                      onClick={() => onPracticeChoice(problem.id, choiceIndex)}
-                      className={`rounded-lg border px-3 py-3 text-left text-sm font-bold leading-6 transition ${
+                      onClick={() => handleChoice(problem.id, choiceIndex)}
+                      className={`relative rounded-lg border px-3 py-2.5 pr-9 text-left text-[14px] leading-5 transition duration-150 ease-bezier ${
                         showCorrect
-                          ? "border-mint bg-mint/10 text-mint"
+                          ? "border-success/30 bg-success/5 text-success"
                           : showWrong
-                            ? "border-coral bg-coral/10 text-coral"
-                            : "border-line bg-subtle text-ink"
+                            ? "border-error/30 bg-error/5 text-error"
+                            : "border-line bg-subtle text-ink hover:bg-white"
                       }`}
                     >
                       {choice}
+                      {showCorrect && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[16px] font-bold text-success">
+                          O
+                        </span>
+                      )}
+                      {showWrong && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[16px] font-bold text-error">
+                          X
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
               {hasSelected && (
-                <div className="mt-3 rounded-lg bg-lemon/15 p-3 text-sm font-bold leading-6">
-                  {selected === correctIndex ? "맞았어요!" : `정답은 ${problem.choices?.[correctIndex] || problem.answer} 입니다.`}
-                  <br />
-                  {problem.hint}
+                <div className="mt-3 rounded-lg bg-cobalt/5 px-3 py-2.5 text-[13px] leading-5 text-ink">
+                  {selected === correctIndex
+                    ? "정답이에요!"
+                    : `정답은 '${problem.choices?.[correctIndex] || problem.answer}'예요.`}
+                  {problem.hint && (
+                    <>
+                      <br />
+                      {problem.hint}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -479,21 +648,12 @@ function PracticeQuiz({ activeProblem, onPracticeChoice }) {
   );
 }
 
-function HistoryView({
-  history,
-  subjectTags,
-  unitFilter,
-  setUnitFilter,
-  statusFilter,
-  setStatusFilter,
-  openHistoryId,
-  setOpenHistoryId
-}) {
+function HistoryView({ history, subjectTags, unitFilter, setUnitFilter, statusFilter, setStatusFilter, onSelectItem }) {
   return (
-    <section className="mt-6 pb-6">
+    <section className="mt-5 pb-6">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">기록</h1>
-        <span className="text-sm font-bold text-muted">{history.length}개</span>
+        <h1 className="text-[22px] font-bold tracking-[-0.4px] text-ink">기록</h1>
+        <span className="text-[13px] text-muted">{history.length}개</span>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-2">
@@ -510,49 +670,143 @@ function HistoryView({
       </div>
 
       {history.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line bg-subtle p-8 text-center text-sm font-bold text-muted">
-          아직 저장된 기록이 없습니다.
+        <div className="rounded-xl border border-dashed border-line bg-subtle p-8 text-center text-[14px] text-muted">
+          아직 저장된 기록이 없어요.
         </div>
       ) : (
-        <div className="space-y-3">
-          {history.map((item) => {
-            const open = openHistoryId === item.id;
-            return (
-              <article key={item.id} className="overflow-hidden rounded-xl border border-line bg-white">
-                <button
-                  onClick={() => setOpenHistoryId(open ? null : item.id)}
-                  className="flex w-full items-center justify-between gap-3 p-4 text-left"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded bg-mint/10 px-2 py-1 text-xs font-bold text-mint">{item.subjectTag}</span>
-                      <span className="text-xs font-bold text-muted">{new Date(item.registeredAt).toLocaleDateString("ko-KR")}</span>
-                      <span className="text-xs font-bold text-vivid">{statusLabel(item.understandingStatus)}</span>
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-sm font-bold leading-6">{item.problemSummary}</p>
+        <div className="space-y-2">
+          {history.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onSelectItem(item)}
+              className="w-full rounded-xl border border-line bg-white p-4 text-left transition duration-150 ease-bezier hover:bg-subtle"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded bg-cobalt/10 px-2 py-0.5 text-[12px] text-cobalt">
+                      {item.subjectTag}
+                    </span>
+                    <span className="text-[12px] text-muted">
+                      {new Date(item.registeredAt).toLocaleDateString("ko-KR")}
+                    </span>
+                    {item.understandingStatus !== "unanswered" && (
+                      <span
+                        className={`text-[12px] ${
+                          item.understandingStatus === "understood" ? "text-success" : "text-error"
+                        }`}
+                      >
+                        {statusLabel(item.understandingStatus)}
+                      </span>
+                    )}
                   </div>
-                  {open ? <ChevronUp className="h-5 w-5 shrink-0 text-muted" /> : <ChevronDown className="h-5 w-5 shrink-0 text-muted" />}
-                </button>
-
-                {open && (
-                  <div className="space-y-4 border-t border-line bg-subtle p-4">
-                    <section>
-                      <h2 className="mb-2 text-sm font-bold text-vivid">등록한 문제</h2>
-                      <p className="whitespace-pre-wrap rounded-lg bg-white p-3 text-sm font-bold leading-6">{item.problemText}</p>
-                    </section>
-                    <section>
-                      <h2 className="mb-2 text-sm font-bold text-vivid">풀이 방법</h2>
-                      <p className="whitespace-pre-wrap rounded-lg bg-white p-3 text-sm leading-6">
-                        {item.explanation || "저장된 풀이가 없습니다."}
-                      </p>
-                    </section>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+                  <p className="mt-1.5 line-clamp-2 text-[14px] leading-5 text-ink">{item.problemSummary}</p>
+                </div>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </section>
+  );
+}
+
+function HistoryDetailView({ item, onBack }) {
+  const [problemOpen, setProblemOpen] = useState(false);
+
+  if (!item) return null;
+
+  return (
+    <div className="min-h-screen bg-white text-ink">
+      <header className="sticky top-0 z-10 border-b border-line bg-white/90 px-5 py-4 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
+          <button
+            onClick={onBack}
+            aria-label="뒤로 가기"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-subtle text-ink transition duration-150 ease-bezier"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <h1 className="text-[17px] font-bold leading-6 tracking-[-0.1px]">풀이 방법</h1>
+            <p className="text-[13px] text-muted">
+              {new Date(item.registeredAt).toLocaleDateString("ko-KR")}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl space-y-4 px-5 py-5">
+        {/* 등록한 문제 accordion */}
+        <section className="overflow-hidden rounded-xl border border-line bg-white">
+          <button
+            onClick={() => setProblemOpen(!problemOpen)}
+            className="flex w-full items-center justify-between p-4 text-left transition duration-150 ease-bezier"
+          >
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-cobalt/10 px-2 py-0.5 text-[12px] text-cobalt">
+                {item.subjectTag}
+              </span>
+              <span className="text-[14px] font-bold text-ink">등록한 문제</span>
+            </div>
+            {problemOpen ? (
+              <ChevronUp className="h-4 w-4 shrink-0 text-muted" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+            )}
+          </button>
+          {problemOpen && (
+            <div className="border-t border-line bg-subtle px-4 py-4">
+              {item.imagePreview && (
+                <img
+                  src={item.imagePreview}
+                  alt="문제 이미지"
+                  className="mb-3 max-h-48 w-full rounded-lg object-cover"
+                />
+              )}
+              <p className="whitespace-pre-wrap text-[14px] leading-5 text-ink">{item.problemText}</p>
+            </div>
+          )}
+        </section>
+
+        {/* 풀이 방법 */}
+        <section className="app-card p-5">
+          <h2 className="mb-3 text-[15px] font-bold text-ink">풀이 방법</h2>
+          <Markdown
+            rehypePlugins={[rehypeRaw]}
+            className="text-[15px] leading-6 text-ink"
+            components={{
+              p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
+              strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
+              hr: () => <hr className="my-4 border-line" />,
+              ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
+              ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
+              li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
+              h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
+              h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
+              h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
+              h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
+              code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
+              blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
+            }}
+          >
+            {item.explanation || "저장된 풀이가 없어요."}
+          </Markdown>
+        </section>
+
+        {/* 이해 상태 */}
+        {item.understandingStatus !== "unanswered" && (
+          <div
+            className={`rounded-lg px-4 py-3 text-center text-[14px] font-bold ${
+              item.understandingStatus === "understood"
+                ? "bg-success/10 text-success"
+                : "bg-error/10 text-error"
+            }`}
+          >
+            {statusLabel(item.understandingStatus)}
+          </div>
+        )}
+      </main>
+    </div>
   );
 }

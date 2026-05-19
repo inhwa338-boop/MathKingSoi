@@ -13,10 +13,12 @@
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.4",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.2.0",
+    "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "lucide-react": "^0.468.0"
+    "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "vite": "^6.2.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",
