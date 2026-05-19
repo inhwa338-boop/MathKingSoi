@@ -31,6 +31,29 @@ const LOADING_STEPS = [
   "풀이 방법을 완성하고 있어요",
 ];
 
+const QUIZ_MARKER = "✏️ 스스로 맞히는 퀴즈 카드";
+const CIRCLE_NUMS = ["①", "②", "③", "④"];
+
+function parseQuizFromExplanation(explanation) {
+  if (!explanation) return { content: explanation, quiz: null };
+  const idx = explanation.indexOf(QUIZ_MARKER);
+  if (idx === -1) return { content: explanation, quiz: null };
+
+  const content = explanation.slice(0, idx).trim();
+  const quizSection = explanation.slice(idx + QUIZ_MARKER.length);
+
+  const choices = CIRCLE_NUMS.map((num) => {
+    const start = quizSection.indexOf(num);
+    if (start === -1) return null;
+    const end = quizSection.indexOf("\n", start);
+    const line = end === -1 ? quizSection.slice(start + num.length) : quizSection.slice(start + num.length, end);
+    return line.trim();
+  }).filter(Boolean);
+
+  if (choices.length !== 4) return { content: explanation, quiz: null };
+  return { content, quiz: { choices, correctIndex: 3 } };
+}
+
 export default function App() {
   const [showIntro, setShowIntro] = useState(false);
   const [view, setView] = useState("home");
@@ -117,6 +140,7 @@ export default function App() {
       practiceCheckedCount: 0,
       currentGradeIndex: 0,
       explanation: "",
+      inlineQuizSelection: null,
     };
     setActiveProblem(problem);
 
@@ -148,6 +172,7 @@ export default function App() {
         practiceSelections: {},
         practiceCheckedIds: [],
         practiceCheckedCount: 0,
+        inlineQuizSelection: null,
       };
       setActiveProblem(completed);
       setHistory(upsertHistoryItem(completed));
@@ -214,6 +239,13 @@ export default function App() {
     setHistory(updateHistoryItem(updated.id, updated));
   }
 
+  function handleInlineQuizChoice(choiceIndex) {
+    if (!activeProblem || activeProblem.inlineQuizSelection !== null) return;
+    const updated = { ...activeProblem, inlineQuizSelection: choiceIndex };
+    setActiveProblem(updated);
+    setHistory(updateHistoryItem(updated.id, updated));
+  }
+
   function handleCloseSolving() {
     setView("home");
     setMessage("");
@@ -241,6 +273,7 @@ export default function App() {
         loadingMessage={loadingMessage}
         onClose={handleCloseSolving}
         onUnderstanding={handleUnderstanding}
+        onQuizChoice={handleInlineQuizChoice}
       />
     );
   }
@@ -414,7 +447,7 @@ function HomeView({ question, setQuestion, attachedFile, setAttachedFile, fileIn
   );
 }
 
-function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, onClose, onUnderstanding }) {
+function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, onClose, onUnderstanding, onQuizChoice }) {
   const [barWidth, setBarWidth] = useState(0);
 
   useEffect(() => {
@@ -422,8 +455,9 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
     setBarWidth(0);
     const timer = setInterval(() => {
       setBarWidth((prev) => {
-        if (prev >= 90) return prev;
-        return prev + (90 - prev) * 0.004;
+        if (prev >= 95) return prev;
+        if (prev < 80) return Math.min(80, prev + 2.5); // 빠르게 80%까지
+        return prev + (95 - prev) * 0.008;              // 80% 이후 천천히
       });
     }, 100);
     return () => clearInterval(timer);
@@ -432,6 +466,11 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
   useEffect(() => {
     if (activeProblem?.explanation) setBarWidth(100);
   }, [activeProblem?.explanation]);
+
+  const { content: explanationContent, quiz } = useMemo(
+    () => parseQuizFromExplanation(activeProblem?.explanation),
+    [activeProblem?.explanation]
+  );
 
   return (
     <div className="min-h-screen bg-white text-ink">
@@ -456,7 +495,7 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
           <div className="app-card p-5">
             <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-divider">
               <div
-                className="h-full rounded-full bg-cobalt transition-all duration-700 ease-bezier"
+                className="h-full rounded-full bg-cobalt transition-all duration-200 ease-linear"
                 style={{ width: `${barWidth}%` }}
               />
             </div>
@@ -478,24 +517,19 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
               <Markdown
                 rehypePlugins={[rehypeRaw]}
                 className="prose-math text-[15px] leading-6 text-ink"
-                components={{
-                  p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
-                  strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
-                  hr: () => <hr className="my-4 border-line" />,
-                  ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
-                  ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
-                  li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
-                  h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
-                  h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
-                  h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
-                  h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
-                  code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
-                  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
-                }}
+                components={markdownComponents}
               >
-                {activeProblem.explanation}
+                {explanationContent || activeProblem.explanation}
               </Markdown>
             </section>
+
+            {quiz && (
+              <InlineQuizCard
+                quiz={quiz}
+                selection={activeProblem.inlineQuizSelection ?? null}
+                onChoice={onQuizChoice}
+              />
+            )}
 
             <section className="flex gap-2">
               <button
@@ -515,6 +549,74 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
         )}
       </main>
     </div>
+  );
+}
+
+const markdownComponents = {
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
+  strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
+  hr: () => <hr className="my-4 border-line" />,
+  ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
+  li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
+  h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
+  h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
+  code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
+  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
+};
+
+function InlineQuizCard({ quiz, selection, onChoice }) {
+  const [showConfetti, setShowConfetti] = useState(false);
+  const { choices, correctIndex } = quiz;
+  const hasSelected = selection !== null;
+
+  function handleChoice(i) {
+    if (hasSelected) return;
+    onChoice(i);
+    if (i === correctIndex) {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 900);
+    }
+  }
+
+  return (
+    <section className="relative overflow-hidden rounded-xl border border-line bg-subtle p-5">
+      {showConfetti && <ConfettiBurst />}
+      <h2 className="mb-4 text-[16px] font-bold leading-6 text-ink">✏️ 스스로 맞히는 퀴즈 카드</h2>
+      <div className="space-y-2">
+        {choices.map((choice, i) => {
+          const isSelected = selection === i;
+          const isCorrect = i === correctIndex;
+          const showO = hasSelected && isCorrect;
+          const showX = hasSelected && isSelected && !isCorrect;
+          return (
+            <button
+              key={i}
+              disabled={hasSelected}
+              onClick={() => handleChoice(i)}
+              className={`relative w-full rounded-lg border px-3 py-2.5 pr-10 text-left text-[14px] leading-5 transition duration-150 ease-bezier ${
+                showO
+                  ? "border-success/30 bg-success/5 text-success"
+                  : showX
+                    ? "border-error/30 bg-error/5 text-error"
+                    : "border-line bg-white text-ink hover:bg-subtle"
+              }`}
+            >
+              {CIRCLE_NUMS[i]} {choice}
+              {showO && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[16px] font-bold text-success">O</span>}
+              {showX && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[16px] font-bold text-error">X</span>}
+            </button>
+          );
+        })}
+      </div>
+      {hasSelected && selection !== correctIndex && (
+        <p className="mt-3 text-[13px] text-muted">
+          정답은 <span className="font-bold text-success">{CIRCLE_NUMS[correctIndex]} {choices[correctIndex]}</span> 이에요.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -775,24 +877,24 @@ function HistoryDetailView({ item, onBack }) {
           <Markdown
             rehypePlugins={[rehypeRaw]}
             className="text-[15px] leading-6 text-ink"
-            components={{
-              p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
-              strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
-              hr: () => <hr className="my-4 border-line" />,
-              ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
-              ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
-              li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
-              h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
-              h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
-              h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
-              h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
-              code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
-              blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
-            }}
+            components={markdownComponents}
           >
-            {item.explanation || "저장된 풀이가 없어요."}
+            {parseQuizFromExplanation(item.explanation).content || "저장된 풀이가 없어요."}
           </Markdown>
         </section>
+
+        {/* 퀴즈 (기록) */}
+        {(() => {
+          const { quiz } = parseQuizFromExplanation(item.explanation);
+          if (!quiz) return null;
+          return (
+            <InlineQuizCard
+              quiz={quiz}
+              selection={item.inlineQuizSelection ?? null}
+              onChoice={() => {}}
+            />
+          );
+        })()}
 
         {/* 이해 상태 */}
         {item.understandingStatus !== "unanswered" && (
