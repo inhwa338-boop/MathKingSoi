@@ -516,7 +516,7 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
               </div>
               <Markdown
                 rehypePlugins={[rehypeRaw]}
-                className="prose-math text-[15px] leading-6 text-ink"
+                className="text-[16px] leading-[1.8] text-ink"
                 components={markdownComponents}
               >
                 {explanationContent || activeProblem.explanation}
@@ -553,18 +553,36 @@ function SolvingView({ activeProblem, isSolving, loadingStep, loadingMessage, on
 }
 
 const markdownComponents = {
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-7">{children}</p>,
+  p: ({ children }) => (
+    <p className="mb-4 last:mb-0 text-[16px] leading-[1.8] text-ink">{children}</p>
+  ),
   strong: ({ children }) => <strong className="font-bold text-ink">{children}</strong>,
-  hr: () => <hr className="my-4 border-line" />,
-  ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2 space-y-1 pl-1 list-decimal list-inside">{children}</ol>,
-  li: ({ children }) => <li className="flex gap-2 leading-6"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" /><span>{children}</span></li>,
-  h1: ({ children }) => <h1 className="mb-2 mt-4 text-[17px] font-bold text-ink">{children}</h1>,
-  h2: ({ children }) => <h2 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h2>,
-  h3: ({ children }) => <h3 className="mb-1 mt-3 text-[15px] font-bold text-ink">{children}</h3>,
-  h4: ({ children }) => <h4 className="mb-1 mt-3 text-[14px] font-bold text-ink">{children}</h4>,
-  code: ({ children }) => <code className="rounded bg-subtle px-1 py-0.5 text-[13px] text-cobalt">{children}</code>,
-  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-cobalt pl-3 text-muted">{children}</blockquote>,
+  hr: () => <hr className="my-6 border-divider" />,
+  ul: ({ children }) => <ul className="my-3 space-y-2">{children}</ul>,
+  ol: ({ children }) => <ol className="my-3 space-y-2">{children}</ol>,
+  li: ({ children }) => (
+    <li className="flex gap-2 text-[16px] leading-[1.8] text-ink">
+      <span className="mt-[0.45em] h-1.5 w-1.5 shrink-0 rounded-full bg-cobalt" />
+      <span>{children}</span>
+    </li>
+  ),
+  h1: ({ children }) => <h1 className="mb-3 mt-6 text-[18px] font-bold text-ink">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-2 mt-5 text-[17px] font-bold text-ink">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-4 text-[16px] font-bold text-ink">{children}</h3>,
+  h4: ({ children }) => <h4 className="mb-1 mt-3 text-[16px] font-bold text-ink">{children}</h4>,
+  code: ({ children }) => (
+    <code className="rounded-md bg-subtle px-2 py-0.5 text-[14px] text-ink font-mono">{children}</code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-3 rounded-xl bg-subtle px-4 py-3 text-[15px] text-ink overflow-x-auto leading-relaxed">
+      {children}
+    </pre>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-4 rounded-xl bg-subtle border-l-4 border-cobalt px-4 py-3 text-[16px] leading-[1.8] text-ink">
+      {children}
+    </blockquote>
+  ),
 };
 
 function InlineQuizCard({ quiz, selection, onChoice }) {
@@ -876,7 +894,7 @@ function HistoryDetailView({ item, onBack }) {
           <h2 className="mb-3 text-[15px] font-bold text-ink">풀이 방법</h2>
           <Markdown
             rehypePlugins={[rehypeRaw]}
-            className="text-[15px] leading-6 text-ink"
+            className="text-[16px] leading-[1.8] text-ink"
             components={markdownComponents}
           >
             {parseQuizFromExplanation(item.explanation).content || "저장된 풀이가 없어요."}
